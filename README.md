@@ -47,7 +47,7 @@ SpineConversionResult result = SpineConverter.Convert(new SpineConversionRequest
 
 Reconverting into the same folder rewrites the assets in place: GUIDs are kept, so scenes referencing the prefab or clips stay valid, and files no longer produced are removed. Two runs on the same export produce identical files.
 
-## Supported Spine features (v0.1)
+## Supported Spine features
 
 | Feature | Status |
 |---------|--------|
