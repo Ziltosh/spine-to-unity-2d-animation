@@ -1,0 +1,17 @@
+{
+  "name": "com.ziltosh.spine-to-unity-2d-animation",
+  "displayName": "Spine to Unity 2D Animation",
+  "version": "0.1.0",
+  "unity": "6000.6",
+  "description": "Editor-only converter from Spine 3.8 JSON exports (skeleton, atlas, pages) to native Unity 2D Animation prefabs: bone hierarchy, sprites, weighted meshes bound with SpriteSkin and one AnimationClip per Spine animation. No Spine runtime code is used or required.",
+  "keywords": ["spine", "2d", "animation", "converter", "sprite skin", "bones"],
+  "license": "MIT",
+  "author": {
+    "name": "Nicolas Egermann"
+  },
+  "dependencies": {
+    "com.unity.2d.animation": "16.0.1",
+    "com.unity.modules.animation": "1.0.0",
+    "com.unity.modules.imageconversion": "1.0.0"
+  }
+}

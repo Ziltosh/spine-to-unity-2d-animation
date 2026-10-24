@@ -1,0 +1,5 @@
+# Les fichiers .meta du package sont versionnés : ils fixent les GUID Unity.
+.vs/
+.idea/
+*.csproj
+*.sln
