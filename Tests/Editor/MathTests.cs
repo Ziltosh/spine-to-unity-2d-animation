@@ -71,6 +71,46 @@ namespace SpineTo2DAnimation.Editor.Tests
         }
 
         [Test]
+        public void Simplify_DropsRedundantKeysWithinTolerance()
+        {
+            var ramp = new AnimationCurve();
+            var wave = new AnimationCurve();
+            for (int frame = 0; frame <= 30; frame++)
+            {
+                float time = frame / 30f;
+                ramp.AddKey(time, 2f * time);
+                wave.AddKey(time, Mathf.Sin(time * Mathf.PI * 2f) * 10f);
+            }
+
+            AnimationCurve simplifiedRamp = SpineAnimationBaker.Simplify(ramp, 0.001f);
+            AnimationCurve simplifiedWave = SpineAnimationBaker.Simplify(wave, 0.05f);
+
+            Assert.That(simplifiedRamp.length, Is.EqualTo(2));
+            Assert.That(simplifiedWave.length, Is.LessThan(wave.length));
+            for (int frame = 0; frame <= 30; frame++)
+            {
+                float time = frame / 30f;
+                float linear = LinearEvaluate(simplifiedWave, time);
+                Assert.That(Mathf.Abs(linear - wave.keys[frame].value), Is.LessThanOrEqualTo(0.05f + 1e-4f));
+            }
+        }
+
+        private static float LinearEvaluate(AnimationCurve curve, float time)
+        {
+            Keyframe[] keys = curve.keys;
+            for (int index = 0; index < keys.Length - 1; index++)
+            {
+                if (time <= keys[index + 1].time)
+                {
+                    float t = (time - keys[index].time) / (keys[index + 1].time - keys[index].time);
+                    return keys[index].value + (keys[index + 1].value - keys[index].value) * t;
+                }
+            }
+
+            return keys[keys.Length - 1].value;
+        }
+
+        [Test]
         public void Matrix2D_ComposesParentRotation()
         {
             Matrix2D arm = Matrix2D.Identity * Matrix2D.FromTransform(10f, 0f, 90f, 1f, 1f);

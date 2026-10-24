@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 - 2026-10-24
+
+- Added: one- and two-bone IK constraints solved like the Spine 3.8 runtime and baked into bone rotations (setup pose and animations).
+- Changed: reconverting an export rewrites assets in place (stable GUIDs, deterministic bone ids, untouched controller) and removes stale files; two runs produce identical files.
+- Changed: baked curves are simplified within a small tolerance (0.05°, 0.05 px, 0.2 % color), roughly six times smaller clips.
+- Changed: generated sprites use compressed textures.
+
 ## 0.1.0 - 2026-10-24
 
 - Added: Spine 3.8 JSON and libGDX atlas readers (3.7 skin objects accepted).

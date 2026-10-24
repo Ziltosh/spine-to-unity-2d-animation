@@ -20,6 +20,20 @@ namespace SpineTo2DAnimation.Editor.Reading
         public string TransformMode = "normal";
     }
 
+    /// <summary>Spine IK constraint (one or two bones), applied in <see cref="Order"/> after local poses.</summary>
+    public sealed class SpineIkConstraintData
+    {
+        public string Name;
+        public int Order;
+        public List<SpineBoneData> Bones = new List<SpineBoneData>();
+        public SpineBoneData Target;
+        public float Mix = 1f;
+        public bool BendPositive = true;
+        public bool Compress;
+        public bool Stretch;
+        public float Softness;
+    }
+
     public sealed class SpineSlotData
     {
         public int Index;
@@ -192,6 +206,7 @@ namespace SpineTo2DAnimation.Editor.Reading
         public string SpineVersion;
         public List<SpineBoneData> Bones = new List<SpineBoneData>();
         public List<SpineSlotData> Slots = new List<SpineSlotData>();
+        public List<SpineIkConstraintData> IkConstraints = new List<SpineIkConstraintData>();
         public List<SpineSkinData> Skins = new List<SpineSkinData>();
         public List<SpineAnimationData> Animations = new List<SpineAnimationData>();
         public List<string> UnsupportedFeatures = new List<string>();
@@ -212,10 +227,11 @@ namespace SpineTo2DAnimation.Editor.Reading
 
             ReadBones(root, data);
             ReadSlots(root, data);
+            ReadIkConstraints(root, data);
             ReadSkins(root, data);
             ReadAnimations(root, data);
 
-            foreach (string section in new[] { "ik", "transform", "path" })
+            foreach (string section in new[] { "transform", "path" })
             {
                 if (Array(root, section) is List<object> constraints && constraints.Count > 0)
                     data.UnsupportedFeatures.Add($"{constraints.Count} {section} constraint(s)");
@@ -282,6 +298,44 @@ namespace SpineTo2DAnimation.Editor.Reading
 
                 data.Slots.Add(slot);
             }
+        }
+
+        private static void ReadIkConstraints(Dictionary<string, object> root, SpineSkeletonData data)
+        {
+            foreach (object item in Array(root, "ik") ?? new List<object>())
+            {
+                var map = (Dictionary<string, object>)item;
+                var constraint = new SpineIkConstraintData
+                {
+                    Name = String(map, "name"),
+                    Order = (int)Float(map, "order", 0f),
+                    Mix = Float(map, "mix", 1f),
+                    BendPositive = !map.TryGetValue("bendPositive", out object bend) || !(bend is bool positive) || positive,
+                    Compress = map.TryGetValue("compress", out object compress) && compress is bool compressed && compressed,
+                    Stretch = map.TryGetValue("stretch", out object stretch) && stretch is bool stretched && stretched,
+                    Softness = Float(map, "softness", 0f)
+                };
+
+                foreach (object boneName in Array(map, "bones") ?? new List<object>())
+                {
+                    constraint.Bones.Add(data.FindBone((string)boneName)
+                        ?? throw new FormatException($"IK constraint '{constraint.Name}' references unknown bone '{boneName}'."));
+                }
+
+                string targetName = String(map, "target");
+                constraint.Target = data.FindBone(targetName)
+                    ?? throw new FormatException($"IK constraint '{constraint.Name}' references unknown target '{targetName}'.");
+
+                if (constraint.Bones.Count < 1 || constraint.Bones.Count > 2)
+                    data.UnsupportedFeatures.Add($"IK constraint '{constraint.Name}' with {constraint.Bones.Count} bones skipped");
+                else
+                    data.IkConstraints.Add(constraint);
+
+                if (constraint.Compress || constraint.Stretch || constraint.Softness > 0f)
+                    data.UnsupportedFeatures.Add($"IK constraint '{constraint.Name}': compress/stretch/softness ignored");
+            }
+
+            data.IkConstraints.Sort((left, right) => left.Order.CompareTo(right.Order));
         }
 
         private static void ReadSkins(Dictionary<string, object> root, SpineSkeletonData data)

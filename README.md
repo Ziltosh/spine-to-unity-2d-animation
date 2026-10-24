@@ -45,7 +45,7 @@ SpineConversionResult result = SpineConverter.Convert(new SpineConversionRequest
 });
 ```
 
-The output folder is replaced on each run.
+Reconverting into the same folder rewrites the assets in place: GUIDs are kept, so scenes referencing the prefab or clips stay valid, and files no longer produced are removed. Two runs on the same export produce identical files.
 
 ## Supported Spine features (v0.1)
 
@@ -58,7 +58,8 @@ The output folder is replaced on each run.
 | Bone rotate / translate / scale timelines, Bezier and stepped curves | ✅ (sampled, 30 fps by default) |
 | Slot attachment and color timelines | ✅ |
 | Default skin | ✅ (other skins reported) |
-| IK, transform and path constraints | ⚠️ reported, not converted |
+| IK constraints (one or two bones) | ✅ solved and baked into bone rotations |
+| Transform and path constraints, IK timelines, IK compress/stretch/softness | ⚠️ reported, not converted |
 | Deform, draw order and event timelines | ⚠️ reported, not converted |
 | Shear, non-normal inheritance modes, blend modes, clipping, bounding boxes, points, paths | ⚠️ reported, not converted |
 

@@ -60,7 +60,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
             importer.wrapMode = TextureWrapMode.Clamp;
             importer.filterMode = FilterMode.Bilinear;
             importer.maxTextureSize = 4096;
-            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.textureCompression = TextureImporterCompression.Compressed;
 
             var settings = new TextureImporterSettings();
             importer.ReadTextureSettings(settings);
@@ -108,7 +108,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
                 bones.Add(new SpriteBone
                 {
                     name = bone.Name,
-                    guid = GUID.Generate().ToString(),
+                    guid = StableGuid(bone.Name),
                     position = bone.Position,
                     rotation = Quaternion.Euler(0f, 0f, bone.RotationDegrees),
                     length = Mathf.Max(1f, bone.Length),
@@ -120,6 +120,16 @@ namespace SpineTo2DAnimation.Editor.Conversion
             dataProvider.GetDataProvider<ISpriteBoneDataProvider>().SetBones(spriteId, bones);
             dataProvider.Apply();
             importer.SaveAndReimport();
+        }
+
+        /// <summary>Deterministic bone GUID so that reconverting an export rewrites identical import settings.</summary>
+        private static string StableGuid(string name)
+        {
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+            {
+                byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(name ?? string.Empty));
+                return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+            }
         }
 
         public static string ToAbsolutePath(string assetPath)

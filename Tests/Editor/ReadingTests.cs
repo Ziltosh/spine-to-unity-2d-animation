@@ -73,13 +73,16 @@ namespace SpineTo2DAnimation.Editor.Tests
         {
             const string json = "{\"skeleton\":{\"spine\":\"3.7.94\"},\"bones\":[{\"name\":\"root\"}],"
                 + "\"slots\":[{\"name\":\"s\",\"bone\":\"root\",\"attachment\":\"a\"}],"
-                + "\"ik\":[{\"name\":\"leg\"}],"
+                + "\"ik\":[{\"name\":\"leg\",\"bones\":[\"root\"],\"target\":\"root\",\"order\":2}],"
+                + "\"transform\":[{\"name\":\"tc\"}],"
                 + "\"skins\":{\"default\":{\"s\":{\"a\":{\"width\":4,\"height\":4}}}}}";
 
             SpineSkeletonData data = SpineSkeletonData.Parse(json);
 
             Assert.That(data.DefaultSkin.Find("s", "a").Type, Is.EqualTo(SpineAttachmentType.Region));
-            Assert.That(data.UnsupportedFeatures, Has.Some.Contains("ik"));
+            Assert.That(data.IkConstraints.Count, Is.EqualTo(1));
+            Assert.That(data.IkConstraints[0].Order, Is.EqualTo(2));
+            Assert.That(data.UnsupportedFeatures, Has.Some.Contains("transform"));
         }
     }
 }

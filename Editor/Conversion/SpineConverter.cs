@@ -36,6 +36,8 @@ namespace SpineTo2DAnimation.Editor.Conversion
         public int BoneCount;
         public int RegionAttachmentCount;
         public int MeshAttachmentCount;
+        /// <summary>Assets written by this run; anything else left in the output folder is removed.</summary>
+        public HashSet<string> WrittenPaths = new HashSet<string>(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -77,14 +79,19 @@ namespace SpineTo2DAnimation.Editor.Conversion
             if (skeleton.SpineVersion != null && !skeleton.SpineVersion.StartsWith("3.", StringComparison.Ordinal))
                 result.Notes.Add($"Spine export version {skeleton.SpineVersion} is outside the tested 3.x format.");
 
-            PrepareFolder(request.OutputFolder);
+            EnsureFolder(request.OutputFolder);
             string spritesFolder = request.OutputFolder + "/Sprites";
             EnsureFolder(spritesFolder);
 
             var root = new GameObject(name);
             try
             {
-                Transform[] bones = BuildBones(skeleton, root.transform, request.PixelsPerUnit, out Matrix2D[] world);
+                var solver = new SpinePoseSolver(skeleton);
+                SpineLocalPose[] setupPose = solver.SolvedPose(null, 0f, out Matrix2D[] world);
+                if (solver.HasConstraints)
+                    result.Notes.Add($"{skeleton.IkConstraints.Count} IK constraint(s) solved in the setup pose and baked into bone rotations.");
+
+                Transform[] bones = BuildBones(skeleton, setupPose, root.transform, request.PixelsPerUnit);
                 CheckSetupScale(skeleton, world, result);
 
                 using (var extractor = new RegionExtractor(Path.GetDirectoryName(request.AtlasPath)))
@@ -96,15 +103,16 @@ namespace SpineTo2DAnimation.Editor.Conversion
                     }
 
                     List<SlotInstance> slots = BuildSlots(skeleton, atlas, extractor, root.transform, bones, world, spritesFolder, request, result);
-                    BuildAnimations(skeleton, slots, root.transform, bones, request, result);
+                    BuildAnimations(skeleton, solver, slots, root.transform, bones, request, result);
                 }
 
                 root.AddComponent<SortingGroup>();
                 Animator animator = root.AddComponent<Animator>();
-                animator.runtimeAnimatorController = CreateController(request.OutputFolder, name, result.ClipPaths);
+                animator.runtimeAnimatorController = CreateController(request.OutputFolder, name, result);
 
                 result.PrefabPath = $"{request.OutputFolder}/{name}.prefab";
                 PrefabUtility.SaveAsPrefabAsset(root, result.PrefabPath);
+                result.WrittenPaths.Add(result.PrefabPath);
             }
             finally
             {
@@ -114,6 +122,8 @@ namespace SpineTo2DAnimation.Editor.Conversion
             result.ReportPath = $"{request.OutputFolder}/conversion-report.md";
             File.WriteAllText(SpriteAssetWriter.ToAbsolutePath(result.ReportPath), FormatReport(name, request, skeleton, result));
             AssetDatabase.ImportAsset(result.ReportPath);
+            result.WrittenPaths.Add(result.ReportPath);
+            RemoveStaleAssets(request.OutputFolder, result.WrittenPaths);
             AssetDatabase.SaveAssets();
             return result;
         }
@@ -134,23 +144,19 @@ namespace SpineTo2DAnimation.Editor.Conversion
             request.OutputFolder = request.OutputFolder.Replace('\\', '/').TrimEnd('/');
         }
 
-        private static Transform[] BuildBones(SpineSkeletonData skeleton, Transform root, float ppu, out Matrix2D[] world)
+        private static Transform[] BuildBones(SpineSkeletonData skeleton, SpineLocalPose[] pose, Transform root, float ppu)
         {
             var transforms = new Transform[skeleton.Bones.Count];
-            world = new Matrix2D[skeleton.Bones.Count];
-
             foreach (SpineBoneData bone in skeleton.Bones)
             {
+                SpineLocalPose local = pose[bone.Index];
                 var gameObject = new GameObject(SafeName(bone.Name));
                 Transform parent = bone.Parent == null ? root : transforms[bone.Parent.Index];
                 gameObject.transform.SetParent(parent, false);
-                gameObject.transform.localPosition = new Vector3(bone.X / ppu, bone.Y / ppu, 0f);
-                gameObject.transform.localRotation = Quaternion.Euler(0f, 0f, bone.Rotation);
-                gameObject.transform.localScale = new Vector3(bone.ScaleX, bone.ScaleY, 1f);
+                gameObject.transform.localPosition = new Vector3(local.X / ppu, local.Y / ppu, 0f);
+                gameObject.transform.localRotation = Quaternion.Euler(0f, 0f, local.Rotation);
+                gameObject.transform.localScale = new Vector3(local.ScaleX, local.ScaleY, 1f);
                 transforms[bone.Index] = gameObject.transform;
-
-                Matrix2D local = Matrix2D.FromTransform(bone.X, bone.Y, bone.Rotation, bone.ScaleX, bone.ScaleY);
-                world[bone.Index] = bone.Parent == null ? local : world[bone.Parent.Index] * local;
             }
 
             return transforms;
@@ -233,7 +239,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
                     if (geometry.Type == SpineAttachmentType.Region)
                     {
                         attachmentObject.transform.SetParent(bones[slot.Bone.Index], false);
-                        renderer.sprite = GetRegionSprite(region, extractor, spritesFolder, request.PixelsPerUnit, regionSprites);
+                        renderer.sprite = GetRegionSprite(region, extractor, spritesFolder, request.PixelsPerUnit, regionSprites, result);
                         float widthScale = geometry.Width > 0f ? geometry.Width / region.OriginalWidth : 1f;
                         float heightScale = geometry.Height > 0f ? geometry.Height / region.OriginalHeight : 1f;
                         attachmentObject.transform.localPosition = new Vector3(geometry.X / request.PixelsPerUnit, geometry.Y / request.PixelsPerUnit, 0f);
@@ -268,13 +274,16 @@ namespace SpineTo2DAnimation.Editor.Conversion
             RegionExtractor extractor,
             string spritesFolder,
             float ppu,
-            Dictionary<string, Sprite> cache)
+            Dictionary<string, Sprite> cache,
+            SpineConversionResult result)
         {
             if (cache.TryGetValue(region.Name, out Sprite cached))
                 return cached;
 
             Color32[] pixels = extractor.Extract(region, out int width, out int height);
-            Sprite sprite = SpriteAssetWriter.WriteSprite($"{spritesFolder}/{SafeFileName(region.Name)}.png", pixels, width, height, ppu, null);
+            string spritePath = $"{spritesFolder}/{SafeFileName(region.Name)}.png";
+            Sprite sprite = SpriteAssetWriter.WriteSprite(spritePath, pixels, width, height, ppu, null);
+            result.WrittenPaths.Add(spritePath);
             cache[region.Name] = sprite;
             return sprite;
         }
@@ -365,6 +374,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
             string spritePath = $"{spritesFolder}/{SafeFileName(slot.Name)}__{SafeFileName(attachmentKey)}__mesh.png";
             Color32[] pixels = extractor.Extract(region, out int width, out int height);
             renderer.sprite = SpriteAssetWriter.WriteSprite(spritePath, pixels, width, height, request.PixelsPerUnit / fit.Scale, spec);
+            result.WrittenPaths.Add(spritePath);
 
             SpriteSkin skinComponent = renderer.gameObject.AddComponent<SpriteSkin>();
             skinComponent.SetRootBone(bones[0]);
@@ -456,6 +466,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
 
         private static void BuildAnimations(
             SpineSkeletonData skeleton,
+            SpinePoseSolver solver,
             List<SlotInstance> slots,
             Transform root,
             Transform[] bones,
@@ -467,10 +478,11 @@ namespace SpineTo2DAnimation.Editor.Conversion
                 foreach (string unsupported in animation.UnsupportedTimelines)
                     result.Notes.Add($"Animation '{animation.Name}': {unsupported} timeline ignored.");
 
-                AnimationClip clip = SpineAnimationBaker.Bake(animation, skeleton, slots.Select(ToBakerSlot).ToList(), root, bones, request.PixelsPerUnit, request.FrameRate);
+                AnimationClip clip = SpineAnimationBaker.Bake(animation, skeleton, solver, slots.Select(ToBakerSlot).ToList(), root, bones, request.PixelsPerUnit, request.FrameRate);
                 string clipPath = $"{request.OutputFolder}/{SafeFileName(animation.Name)}.anim";
-                AssetDatabase.CreateAsset(clip, clipPath);
+                SaveClip(clip, clipPath);
                 result.ClipPaths.Add(clipPath);
+                result.WrittenPaths.Add(clipPath);
             }
         }
 
@@ -490,9 +502,35 @@ namespace SpineTo2DAnimation.Editor.Conversion
             };
         }
 
-        private static AnimatorController CreateController(string folder, string name, List<string> clipPaths)
+        /// <summary>Overwrites an existing clip in place so that its GUID, and every reference to it, survives a reconversion.</summary>
+        private static void SaveClip(AnimationClip clip, string clipPath)
         {
-            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath($"{folder}/{SafeFileName(name)}.controller");
+            var existing = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);
+            if (existing == null)
+            {
+                AssetDatabase.CreateAsset(clip, clipPath);
+                return;
+            }
+
+            EditorUtility.CopySerialized(clip, existing);
+            EditorUtility.SetDirty(existing);
+            UnityEngine.Object.DestroyImmediate(clip);
+        }
+
+        /// <summary>Reuses the existing controller when it already plays exactly these clips, so reconversions leave it untouched.</summary>
+        private static AnimatorController CreateController(string folder, string name, SpineConversionResult result)
+        {
+            List<string> clipPaths = result.ClipPaths;
+            string controllerPath = $"{folder}/{SafeFileName(name)}.controller";
+            result.WrittenPaths.Add(controllerPath);
+            var existing = AssetDatabase.LoadAssetAtPath<AnimatorController>(controllerPath);
+            if (existing != null && ControllerMatches(existing, clipPaths))
+                return existing;
+
+            if (existing != null)
+                AssetDatabase.DeleteAsset(controllerPath);
+
+            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(controllerPath);
             AnimatorStateMachine stateMachine = controller.layers[0].stateMachine;
             AnimatorState preferred = null;
 
@@ -511,12 +549,24 @@ namespace SpineTo2DAnimation.Editor.Conversion
             return controller;
         }
 
-        private static void PrepareFolder(string folder)
+        private static bool ControllerMatches(AnimatorController controller, List<string> clipPaths)
         {
-            if (AssetDatabase.IsValidFolder(folder))
-                AssetDatabase.DeleteAsset(folder);
+            var expected = new HashSet<string>(clipPaths, StringComparer.Ordinal);
+            var actual = new HashSet<string>(
+                controller.layers[0].stateMachine.states.Select(state => AssetDatabase.GetAssetPath(state.state.motion)),
+                StringComparer.Ordinal);
+            return expected.SetEquals(actual);
+        }
 
-            EnsureFolder(folder);
+        /// <summary>Deletes assets of a previous run that this conversion no longer produces.</summary>
+        private static void RemoveStaleAssets(string folder, HashSet<string> written)
+        {
+            foreach (string guid in AssetDatabase.FindAssets(string.Empty, new[] { folder }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (!AssetDatabase.IsValidFolder(path) && !written.Contains(path))
+                    AssetDatabase.DeleteAsset(path);
+            }
         }
 
         private static void EnsureFolder(string folder)

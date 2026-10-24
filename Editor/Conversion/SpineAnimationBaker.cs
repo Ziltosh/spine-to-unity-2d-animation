@@ -28,6 +28,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
         public static AnimationClip Bake(
             SpineAnimationData animation,
             SpineSkeletonData skeleton,
+            SpinePoseSolver solver,
             List<SlotBinding> slots,
             Transform root,
             Transform[] bones,
@@ -36,6 +37,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
         {
             var clip = new AnimationClip { name = animation.Name, frameRate = frameRate };
             float[] times = SampleTimes(animation, frameRate);
+            HashSet<int> constrained = solver.ConstrainedBones;
 
             foreach (IGrouping<string, SpineTimeline> boneTimelines in animation.BoneTimelines.GroupBy(timeline => timeline.Target))
             {
@@ -45,8 +47,17 @@ namespace SpineTo2DAnimation.Editor.Conversion
 
                 string path = SpineConverter.RelativePath(root, bones[bone.Index]);
                 foreach (SpineTimeline timeline in boneTimelines)
+                {
+                    // The rotation of an IK-driven bone comes from the solved pose below.
+                    if (timeline.Property == "rotate" && constrained.Contains(bone.Index))
+                        continue;
+
                     BakeBoneTimeline(clip, timeline, bone, path, times, pixelsPerUnit);
+                }
             }
+
+            if (constrained.Count > 0)
+                BakeConstrainedRotations(clip, animation, solver, constrained, root, bones, times);
 
             foreach (SpineTimeline timeline in animation.SlotTimelines)
             {
@@ -139,6 +150,41 @@ namespace SpineTo2DAnimation.Editor.Conversion
             }
         }
 
+        /// <summary>Bakes IK into forward kinematics: the solved local rotation of each constrained bone at every sample.</summary>
+        private static void BakeConstrainedRotations(
+            AnimationClip clip,
+            SpineAnimationData animation,
+            SpinePoseSolver solver,
+            HashSet<int> constrained,
+            Transform root,
+            Transform[] bones,
+            float[] times)
+        {
+            var curves = constrained.ToDictionary(index => index, index => new AnimationCurve());
+            var previous = constrained.ToDictionary(index => index, index => float.NaN);
+
+            foreach (float time in times)
+            {
+                SpineLocalPose[] pose = solver.SolvedPose(animation, time, out _);
+                foreach (int index in constrained)
+                {
+                    float angle = pose[index].Rotation;
+                    if (!float.IsNaN(previous[index]))
+                        angle = previous[index] + Mathf.DeltaAngle(previous[index], angle);
+                    curves[index].AddKey(time, angle);
+                    previous[index] = angle;
+                }
+            }
+
+            foreach (KeyValuePair<int, AnimationCurve> pair in curves)
+            {
+                string path = SpineConverter.RelativePath(root, bones[pair.Key]);
+                SetLinear(clip, path, typeof(Transform), "localEulerAnglesRaw.z", pair.Value);
+                SetLinear(clip, path, typeof(Transform), "localEulerAnglesRaw.x", Constant(times, 0f));
+                SetLinear(clip, path, typeof(Transform), "localEulerAnglesRaw.y", Constant(times, 0f));
+            }
+        }
+
         private static void BakeAttachmentTimeline(AnimationClip clip, SpineTimeline timeline, SlotBinding slot)
         {
             foreach (AttachmentBinding attachment in slot.Attachments)
@@ -198,8 +244,9 @@ namespace SpineTo2DAnimation.Editor.Conversion
             return curve;
         }
 
-        private static void SetLinear(AnimationClip clip, string path, System.Type type, string property, AnimationCurve curve)
+        private static void SetLinear(AnimationClip clip, string path, System.Type type, string property, AnimationCurve sampled)
         {
+            AnimationCurve curve = Simplify(sampled, ToleranceFor(property));
             for (int index = 0; index < curve.length; index++)
             {
                 AnimationUtility.SetKeyLeftTangentMode(curve, index, AnimationUtility.TangentMode.Linear);
@@ -207,6 +254,68 @@ namespace SpineTo2DAnimation.Editor.Conversion
             }
 
             AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve(path, type, property), curve);
+        }
+
+        /// <summary>Largest error accepted when dropping a sampled key: 0.05° in rotation, 0.05 px at 100 px/unit, 0.2 % in color.</summary>
+        private static float ToleranceFor(string property)
+        {
+            if (property.StartsWith("localEulerAngles", System.StringComparison.Ordinal))
+                return 0.05f;
+            if (property.StartsWith("m_Color", System.StringComparison.Ordinal))
+                return 0.002f;
+            return 0.0005f;
+        }
+
+        /// <summary>
+        /// Keeps only the sampled keys needed for linear interpolation to stay within <paramref name="tolerance"/>
+        /// of every sample (Douglas–Peucker on the time series); constant curves collapse to their two ends.
+        /// </summary>
+        public static AnimationCurve Simplify(AnimationCurve sampled, float tolerance)
+        {
+            Keyframe[] keys = sampled.keys;
+            if (keys.Length <= 2)
+                return sampled;
+
+            var keep = new bool[keys.Length];
+            keep[0] = true;
+            keep[keys.Length - 1] = true;
+            var ranges = new Stack<(int Start, int End)>();
+            ranges.Push((0, keys.Length - 1));
+
+            while (ranges.Count > 0)
+            {
+                (int start, int end) = ranges.Pop();
+                float worst = tolerance;
+                int worstIndex = -1;
+                for (int index = start + 1; index < end; index++)
+                {
+                    float span = keys[end].time - keys[start].time;
+                    float t = span <= 0f ? 0f : (keys[index].time - keys[start].time) / span;
+                    float interpolated = keys[start].value + (keys[end].value - keys[start].value) * t;
+                    float error = Mathf.Abs(interpolated - keys[index].value);
+                    if (error > worst)
+                    {
+                        worst = error;
+                        worstIndex = index;
+                    }
+                }
+
+                if (worstIndex < 0)
+                    continue;
+
+                keep[worstIndex] = true;
+                ranges.Push((start, worstIndex));
+                ranges.Push((worstIndex, end));
+            }
+
+            var simplified = new AnimationCurve();
+            for (int index = 0; index < keys.Length; index++)
+            {
+                if (keep[index])
+                    simplified.AddKey(keys[index].time, keys[index].value);
+            }
+
+            return simplified;
         }
 
         private static int FindKey(AnimationCurve curve, float time)
