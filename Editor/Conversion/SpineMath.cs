@@ -192,8 +192,7 @@ namespace SpineTo2DAnimation.Editor.Conversion
             if (index == timeline.Keys.Count - 1)
                 return previous;
 
-            float delta = timeline.Keys[index + 1].Value1 - previous;
-            delta -= (16384 - (int)(16384.499999999996 - delta / 360f)) * 360f;
+            float delta = Mathf.Repeat(timeline.Keys[index + 1].Value1 - previous + 180f, 360f) - 180f;
             return previous + delta * percent;
         }
 

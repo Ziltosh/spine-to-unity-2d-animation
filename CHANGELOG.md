@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-10-30
+
+- Added: repository, documentation and changelog links in the package manifest.
+- Changed: rotate timelines wrap their delta with `Mathf.Repeat`, with the same shortest-path result.
+
 ## 0.2.0 - 2026-10-24
 
 - Added: one- and two-bone IK constraints solved like the Spine 3.8 runtime and baked into bone rotations (setup pose and animations).

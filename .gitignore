@@ -1,4 +1,4 @@
-# Les fichiers .meta du package sont versionnés : ils fixent les GUID Unity.
+# The package's .meta files are tracked: they pin the Unity GUIDs.
 .vs/
 .idea/
 *.csproj

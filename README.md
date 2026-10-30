@@ -1,5 +1,9 @@
 # Spine to Unity 2D Animation
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+[![Unity 6000.6+](https://img.shields.io/badge/Unity-6000.6%2B-black.svg?logo=unity)](package.json)
+[![Latest release](https://img.shields.io/github/v/release/Ziltosh/spine-to-unity-2d-animation)](https://github.com/Ziltosh/spine-to-unity-2d-animation/releases)
+
 Editor-only Unity package that converts **Spine 3.8 JSON exports** into **native Unity 2D Animation** assets, so a project can drop the Spine runtime and keep its existing animations.
 
 From a skeleton JSON, its atlas and the atlas pages, the converter produces:
@@ -16,10 +20,28 @@ No code from the Spine runtimes is used: the package only reads the documented J
 
 - Unity 6000.6 or newer
 - `com.unity.2d.animation` 16.0.1 (installed as a dependency)
+- Git on your `PATH` to install from the URL below
+- A Spine 3.8 export in JSON format, with its atlas and atlas pages
 
 ## Installation
 
-Add the package with Unity Package Manager, from a local folder (`file:../path/to/spine-to-unity-2d-animation`) or from its Git URL.
+In the Unity Package Manager window, click **+**, choose **Install package from git URL...** and paste:
+
+```text
+https://github.com/Ziltosh/spine-to-unity-2d-animation.git#v0.2.1
+```
+
+You can also add it to `Packages/manifest.json`:
+
+```json
+{
+  "dependencies": {
+    "com.ziltosh.spine-to-unity-2d-animation": "https://github.com/Ziltosh/spine-to-unity-2d-animation.git#v0.2.1"
+  }
+}
+```
+
+A local checkout works too, with `file:../path/to/spine-to-unity-2d-animation` as the version.
 
 ## Usage
 
@@ -67,7 +89,17 @@ Meshes are placed through a similarity fit between their image layout and their 
 
 ## Tests
 
-The EditMode tests build their own synthetic Spine export; add the package to `testables` in your project manifest to run them.
+The EditMode tests build their own synthetic Spine export. To run them from the Test Runner, add the package to `testables` in your project manifest:
+
+```json
+{
+  "testables": ["com.ziltosh.spine-to-unity-2d-animation"]
+}
+```
+
+## Contributing
+
+Bug reports and pull requests are welcome, see [CONTRIBUTING.md](.github/CONTRIBUTING.md). Attach the `conversion-report.md` to any conversion bug.
 
 ## License
 
